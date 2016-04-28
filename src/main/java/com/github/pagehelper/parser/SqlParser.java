@@ -24,7 +24,6 @@
 
 package com.github.pagehelper.parser;
 
-import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Alias;
 import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
@@ -42,14 +41,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * @author liuzh
  */
-@SuppressWarnings("rawtypes")
 public class SqlParser {
     private static final List<SelectItem> COUNT_ITEM;
     private static final Alias TABLE_ALIAS;
 
     static {
         COUNT_ITEM = new ArrayList<SelectItem>();
-        COUNT_ITEM.add(new SelectExpressionItem(new Column("count(*)")));
+        COUNT_ITEM.add(new SelectExpressionItem(new Column("count(0)")));
 
         TABLE_ALIAS = new Alias("table_count");
         TABLE_ALIAS.setUseAs(false);
@@ -108,7 +106,7 @@ public class SqlParser {
     public String getSimpleCountSql(final String sql) {
         isSupportedSql(sql);
         StringBuilder stringBuilder = new StringBuilder(sql.length() + 40);
-        stringBuilder.append("select count(*) from (");
+        stringBuilder.append("select count(0) from (");
         stringBuilder.append(sql);
         stringBuilder.append(") tmp_count");
         return stringBuilder.toString();
@@ -180,10 +178,10 @@ public class SqlParser {
             }
         } else {
             SetOperationList operationList = (SetOperationList) selectBody;
-            if (operationList.getPlainSelects() != null && operationList.getPlainSelects().size() > 0) {
-                List<PlainSelect> plainSelects = operationList.getPlainSelects();
-                for (PlainSelect plainSelect : plainSelects) {
-                    processPlainSelect(plainSelect);
+            if (operationList.getSelects() != null && operationList.getSelects().size() > 0) {
+                List<SelectBody> plainSelects = operationList.getSelects();
+                for (SelectBody plainSelect : plainSelects) {
+                    processSelectBody(plainSelect);
                 }
             }
             if (!orderByHashParameters(operationList.getOrderByElements())) {

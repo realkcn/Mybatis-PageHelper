@@ -27,14 +27,17 @@ package com.github.pagehelper;
 import org.apache.ibatis.executor.Executor;
 import org.apache.ibatis.mapping.MappedStatement;
 import org.apache.ibatis.plugin.*;
-import org.apache.ibatis.reflection.MetaObject;
-import org.apache.ibatis.reflection.SystemMetaObject;
 import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 
 import javax.sql.DataSource;
+import java.lang.reflect.Method;
+import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Mybatis - 通用分页拦截器
@@ -43,15 +46,36 @@ import java.util.Properties;
  * @version 3.3.0
  *          项目地址 : http://git.oschina.net/free/Mybatis_PageHelper
  */
-@SuppressWarnings({"rawtypes", "unchecked"})
+@SuppressWarnings("rawtypes")
 @Intercepts(@Signature(type = Executor.class, method = "query", args = {MappedStatement.class, Object.class, RowBounds.class, ResultHandler.class}))
 public class PageHelper implements Interceptor {
     //sql工具类
     private SqlUtil sqlUtil;
     //属性参数信息
     private Properties properties;
-    //自动获取dialect
-    private Boolean autoDialect;
+    //配置对象方式
+    private SqlUtilConfig sqlUtilConfig;
+    //自动获取dialect,如果没有setProperties或setSqlUtilConfig，也可以正常进行
+    private boolean autoDialect = true;
+    //运行时自动获取dialect
+    private boolean autoRuntimeDialect;
+    //多数据源时，获取jdbcurl后是否关闭数据源
+    private boolean closeConn = true;
+    //缓存
+    private Map<String, SqlUtil> urlSqlUtilMap = new ConcurrentHashMap<String, SqlUtil>();
+    private ReentrantLock lock = new ReentrantLock();
+
+    /**
+     * 获取任意查询方法的count总数
+     *
+     * @param select
+     * @return
+     */
+    public static long count(ISelect select) {
+        Page<?> page = startPage(1, -1, true);
+        select.doSelect();
+        return page.getTotal();
+    }
 
     /**
      * 开始分页
@@ -59,7 +83,7 @@ public class PageHelper implements Interceptor {
      * @param pageNum  页码
      * @param pageSize 每页显示数量
      */
-    public static Page startPage(int pageNum, int pageSize) {
+    public static <E> Page<E> startPage(int pageNum, int pageSize) {
         return startPage(pageNum, pageSize, true);
     }
 
@@ -70,7 +94,7 @@ public class PageHelper implements Interceptor {
      * @param pageSize 每页显示数量
      * @param count    是否进行count查询
      */
-    public static Page startPage(int pageNum, int pageSize, boolean count) {
+    public static <E> Page<E> startPage(int pageNum, int pageSize, boolean count) {
         return startPage(pageNum, pageSize, count, null);
     }
 
@@ -81,8 +105,8 @@ public class PageHelper implements Interceptor {
      * @param pageSize 每页显示数量
      * @param orderBy  排序
      */
-    public static Page startPage(int pageNum, int pageSize, String orderBy) {
-        Page page = startPage(pageNum, pageSize);
+    public static <E> Page<E> startPage(int pageNum, int pageSize, String orderBy) {
+        Page<E> page = startPage(pageNum, pageSize);
         page.setOrderBy(orderBy);
         return page;
     }
@@ -90,10 +114,10 @@ public class PageHelper implements Interceptor {
     /**
      * 开始分页
      *
-     * @param offset  页码
-     * @param limit 每页显示数量
+     * @param offset 页码
+     * @param limit  每页显示数量
      */
-    public static Page offsetPage(int offset, int limit) {
+    public static <E> Page<E> offsetPage(int offset, int limit) {
         return offsetPage(offset, limit, true);
     }
 
@@ -104,10 +128,10 @@ public class PageHelper implements Interceptor {
      * @param limit  每页显示数量
      * @param count  是否进行count查询
      */
-    public static Page offsetPage(int offset, int limit, boolean count) {
-        Page page = new Page(new int[]{offset, limit}, count);
+    public static <E> Page<E> offsetPage(int offset, int limit, boolean count) {
+        Page<E> page = new Page<E>(new int[]{offset, limit}, count);
         //当已经执行过orderBy的时候
-        Page oldPage = SqlUtil.getLocalPage();
+        Page<E> oldPage = SqlUtil.getLocalPage();
         if (oldPage != null && oldPage.isOrderByOnly()) {
             page.setOrderBy(oldPage.getOrderBy());
         }
@@ -122,8 +146,8 @@ public class PageHelper implements Interceptor {
      * @param limit   每页显示数量
      * @param orderBy 排序
      */
-    public static Page offsetPage(int offset, int limit, String orderBy) {
-        Page page = offsetPage(offset, limit);
+    public static <E> Page<E> offsetPage(int offset, int limit, String orderBy) {
+        Page<E> page = offsetPage(offset, limit);
         page.setOrderBy(orderBy);
         return page;
     }
@@ -136,7 +160,7 @@ public class PageHelper implements Interceptor {
      * @param count      是否进行count查询
      * @param reasonable 分页合理化,null时用默认配置
      */
-    public static Page startPage(int pageNum, int pageSize, boolean count, Boolean reasonable) {
+    public static <E> Page<E> startPage(int pageNum, int pageSize, boolean count, Boolean reasonable) {
         return startPage(pageNum, pageSize, count, reasonable, null);
     }
 
@@ -149,12 +173,12 @@ public class PageHelper implements Interceptor {
      * @param reasonable   分页合理化,null时用默认配置
      * @param pageSizeZero true且pageSize=0时返回全部结果，false时分页,null时用默认配置
      */
-    public static Page startPage(int pageNum, int pageSize, boolean count, Boolean reasonable, Boolean pageSizeZero) {
-        Page page = new Page(pageNum, pageSize, count);
+    public static <E> Page<E> startPage(int pageNum, int pageSize, boolean count, Boolean reasonable, Boolean pageSizeZero) {
+        Page<E> page = new Page<E>(pageNum, pageSize, count);
         page.setReasonable(reasonable);
         page.setPageSizeZero(pageSizeZero);
         //当已经执行过orderBy的时候
-        Page oldPage = SqlUtil.getLocalPage();
+        Page<E> oldPage = SqlUtil.getLocalPage();
         if (oldPage != null && oldPage.isOrderByOnly()) {
             page.setOrderBy(oldPage.getOrderBy());
         }
@@ -167,10 +191,10 @@ public class PageHelper implements Interceptor {
      *
      * @param params
      */
-    public static Page startPage(Object params) {
-        Page page = SqlUtil.getPageFromObject(params);
+    public static <E> Page<E> startPage(Object params) {
+        Page<E> page = SqlUtil.getPageFromObject(params);
         //当已经执行过orderBy的时候
-        Page oldPage = SqlUtil.getLocalPage();
+        Page<E> oldPage = SqlUtil.getLocalPage();
         if (oldPage != null && oldPage.isOrderByOnly()) {
             page.setOrderBy(oldPage.getOrderBy());
         }
@@ -184,7 +208,7 @@ public class PageHelper implements Interceptor {
      * @param orderBy
      */
     public static void orderBy(String orderBy) {
-        Page page = SqlUtil.getLocalPage();
+        Page<?> page = SqlUtil.getLocalPage();
         if (page != null) {
             page.setOrderBy(orderBy);
         } else {
@@ -201,10 +225,10 @@ public class PageHelper implements Interceptor {
      * @return
      */
     public static String getOrderBy() {
-        Page page = SqlUtil.getLocalPage();
+        Page<?> page = SqlUtil.getLocalPage();
         if (page != null) {
             String orderBy = page.getOrderBy();
-            if (orderBy == null || orderBy.length() == 0) {
+            if (StringUtil.isEmpty(orderBy)) {
                 return null;
             } else {
                 return orderBy;
@@ -221,10 +245,15 @@ public class PageHelper implements Interceptor {
      * @throws Throwable 抛出异常
      */
     public Object intercept(Invocation invocation) throws Throwable {
-        if (autoDialect) {
-            initSqlUtil(invocation);
+        if (autoRuntimeDialect) {
+            SqlUtil sqlUtil = getSqlUtil(invocation);
+            return sqlUtil.processPage(invocation);
+        } else {
+            if (autoDialect) {
+                initSqlUtil(invocation);
+            }
+            return sqlUtil.processPage(invocation);
         }
-        return sqlUtil.processPage(invocation);
     }
 
     /**
@@ -233,27 +262,77 @@ public class PageHelper implements Interceptor {
      * @param invocation
      */
     public synchronized void initSqlUtil(Invocation invocation) {
-        if (sqlUtil == null) {
-            String url = null;
-            try {
-                MappedStatement ms = (MappedStatement) invocation.getArgs()[0];
-                MetaObject msObject = SystemMetaObject.forObject(ms);
-                DataSource dataSource = (DataSource) msObject.getValue("configuration.environment.dataSource");
-                url = dataSource.getConnection().getMetaData().getURL();
-            } catch (SQLException e) {
-                throw new RuntimeException("分页插件初始化异常:" + e.getMessage());
+        if (this.sqlUtil == null) {
+            this.sqlUtil = getSqlUtil(invocation);
+            if (!autoRuntimeDialect) {
+                properties = null;
+                sqlUtilConfig = null;
             }
-            if (url == null || url.length() == 0) {
+            autoDialect = false;
+        }
+    }
+
+    /**
+     * 获取url
+     *
+     * @param dataSource
+     * @return
+     */
+    public String getUrl(DataSource dataSource){
+        Connection conn = null;
+        try {
+            conn = dataSource.getConnection();
+            return conn.getMetaData().getURL();
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        } finally {
+            if(conn != null){
+                try {
+                    if(closeConn){
+                        conn.close();
+                    }
+                } catch (SQLException e) {
+                    //ignore
+                }
+            }
+        }
+    }
+
+    /**
+     * 根据datasource创建对应的sqlUtil
+     *
+     * @param invocation
+     */
+    public SqlUtil getSqlUtil(Invocation invocation) {
+        MappedStatement ms = (MappedStatement) invocation.getArgs()[0];
+        //改为对dataSource做缓存
+        DataSource dataSource = ms.getConfiguration().getEnvironment().getDataSource();
+        String url = getUrl(dataSource);
+        if (urlSqlUtilMap.containsKey(url)) {
+            return urlSqlUtilMap.get(url);
+        }
+        try {
+            lock.lock();
+            if (urlSqlUtilMap.containsKey(url)) {
+                return urlSqlUtilMap.get(url);
+            }
+            if (StringUtil.isEmpty(url)) {
                 throw new RuntimeException("无法自动获取jdbcUrl，请在分页插件中配置dialect参数!");
             }
             String dialect = Dialect.fromJdbcUrl(url);
             if (dialect == null) {
                 throw new RuntimeException("无法自动获取数据库类型，请通过dialect参数指定!");
             }
-            sqlUtil = new SqlUtil(dialect);
-            sqlUtil.setProperties(properties);
-            properties = null;
-            autoDialect = false;
+            SqlUtil sqlUtil = new SqlUtil(dialect);
+            if (this.properties != null) {
+                sqlUtil.setProperties(properties);
+            } else if (this.sqlUtilConfig != null) {
+                sqlUtil.setSqlUtilConfig(this.sqlUtilConfig);
+            }
+            urlSqlUtilMap.put(url, sqlUtil);
+            return sqlUtil;
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -271,27 +350,62 @@ public class PageHelper implements Interceptor {
         }
     }
 
-    /**
-     * 设置属性值
-     *
-     * @param p 属性值
-     */
-    public void setProperties(Properties p) {
+    private void checkVersion() {
         //MyBatis3.2.0版本校验
         try {
             Class.forName("org.apache.ibatis.scripting.xmltags.SqlNode");//SqlNode是3.2.0之后新增的类
         } catch (ClassNotFoundException e) {
             throw new RuntimeException("您使用的MyBatis版本太低，MyBatis分页插件PageHelper支持MyBatis3.2.0及以上版本!");
         }
+    }
+
+    /**
+     * 设置属性值
+     *
+     * @param p 属性值
+     */
+    public void setProperties(Properties p) {
+        checkVersion();
+        //多数据源时，获取jdbcurl后是否关闭数据源
+        String closeConn = p.getProperty("closeConn");
+        this.closeConn = Boolean.parseBoolean(closeConn);
         //数据库方言
         String dialect = p.getProperty("dialect");
-        if (dialect == null || dialect.length() == 0) {
+        String runtimeDialect = p.getProperty("autoRuntimeDialect");
+        if (StringUtil.isNotEmpty(runtimeDialect) && runtimeDialect.equalsIgnoreCase("TRUE")) {
+            this.autoRuntimeDialect = true;
+            this.autoDialect = false;
+            this.properties = p;
+        } else if (StringUtil.isEmpty(dialect)) {
             autoDialect = true;
             this.properties = p;
         } else {
             autoDialect = false;
             sqlUtil = new SqlUtil(dialect);
             sqlUtil.setProperties(p);
+        }
+    }
+
+    /**
+     * 设置属性值
+     *
+     * @param config
+     */
+    public void setSqlUtilConfig(SqlUtilConfig config) {
+        checkVersion();
+        //多数据源时，获取jdbcurl后是否关闭数据源
+        this.closeConn = config.isCloseConn();
+        if (config.isAutoRuntimeDialect()) {
+            this.autoRuntimeDialect = true;
+            this.autoDialect = false;
+            this.sqlUtilConfig = config;
+        } else if (StringUtil.isEmpty(config.getDialect())) {
+            autoDialect = true;
+            this.sqlUtilConfig = config;
+        } else {
+            autoDialect = false;
+            sqlUtil = new SqlUtil(config.getDialect());
+            sqlUtil.setSqlUtilConfig(config);
         }
     }
 }

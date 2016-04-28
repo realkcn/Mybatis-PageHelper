@@ -37,6 +37,7 @@ import org.apache.ibatis.session.RowBounds;
 import java.util.List;
 import java.util.Map;
 
+@SuppressWarnings("rawtypes")
 public interface CountryMapper {
 
     @Select("select * from country order by ${order}")
@@ -118,6 +119,4 @@ public interface CountryMapper {
     List<Country> selectByOrderBy(@Param("orderBy") String orderBy);
 
     List<Country> selectByQueryModel(CountryQueryModel queryModel);
-
-    PageInfo<Country> selectPageInfo();
 }

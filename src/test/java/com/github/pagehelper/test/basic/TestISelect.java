@@ -22,8 +22,9 @@
  * THE SOFTWARE.
  */
 
-package com.github.pagehelper.test.basic.count;
+package com.github.pagehelper.test.basic;
 
+import com.github.pagehelper.ISelect;
 import com.github.pagehelper.Page;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
@@ -35,17 +36,24 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
-public class TestGroupBy {
-
+/**
+ * @author liuzh_3nofxnp
+ * @since 2015-12-26 09:15
+ */
+public class TestISelect {
     @Test
-    public void testGroupBy() {
+    public void testGroupBy2() {
         SqlSession sqlSession = MybatisHelper.getSqlSession();
-        CountryMapper countryMapper = sqlSession.getMapper(CountryMapper.class);
+        final CountryMapper countryMapper = sqlSession.getMapper(CountryMapper.class);
         try {
-            //获取第1页，10条内容，默认查询总数count
-            Page<Country> page = PageHelper.startPage(1, 10);
-            ;
-            countryMapper.selectGroupBy();
+            Page<Country> page = PageHelper.startPage(1, 10).setOrderBy("id desc").doSelectPage(new ISelect() {
+                @Override
+                public void doSelect() {
+                    countryMapper.selectGroupBy();
+                }
+            });
+            //下面是该方法的lambda用法
+            //Page<Country> page = PageHelper.startPage(1, 10).setOrderBy("id desc").doSelectPage(()-> countryMapper.selectGroupBy());
             //1,'Angola','AO'
             assertEquals(1, page.get(0).getId());
             assertEquals(10, page.size());
@@ -54,13 +62,31 @@ public class TestGroupBy {
             PageInfo<Country> pageInfo = page.toPageInfo();
             System.out.println(pageInfo);
 
-            //获取第2页，10条内容，默认查询总数count
-            page = PageHelper.startPage(2, 10);
-            countryMapper.selectGroupBy();
-            //1,'Angola','AO'
-            assertEquals(1, page.get(0).getId());
-            assertEquals(10, page.size());
-            assertEquals(183, page.getTotal());
+
+            pageInfo = PageHelper.startPage(1, 10).setOrderBy("id desc").doSelectPageInfo(new ISelect() {
+                @Override
+                public void doSelect() {
+                    countryMapper.selectGroupBy();
+                }
+            });
+            //lambda
+            //pageInfo = PageHelper.startPage(1, 10).setOrderBy("id desc").doSelectPageInfo(() -> countryMapper.selectGroupBy());
+
+            System.out.println(pageInfo);
+
+            final Country country = new Country();
+            country.setCountryname("c");
+
+            long total = PageHelper.count(new ISelect() {
+                @Override
+                public void doSelect() {
+                    countryMapper.selectLike(country);
+                }
+            });
+            //lambda
+            //long total = PageHelper.count(()->countryMapper.selectLike(country));
+
+            System.out.println(total);
         } finally {
             sqlSession.close();
         }

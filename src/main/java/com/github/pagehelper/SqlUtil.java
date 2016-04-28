@@ -24,7 +24,6 @@
 
 package com.github.pagehelper;
 
-import com.github.orderbyhelper.sqlsource.OrderBySqlSource;
 import com.github.pagehelper.parser.Parser;
 import com.github.pagehelper.parser.impl.AbstractParser;
 import com.github.pagehelper.sqlsource.*;
@@ -41,7 +40,10 @@ import org.apache.ibatis.scripting.xmltags.DynamicSqlSource;
 import org.apache.ibatis.session.RowBounds;
 
 import java.lang.reflect.Method;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -60,18 +62,19 @@ public class SqlUtil implements Constant {
     private static Boolean hasRequest;
     private static Class<?> requestClass;
     private static Method getParameterMap;
+
     static {
         try {
             requestClass = Class.forName("javax.servlet.ServletRequest");
             getParameterMap = requestClass.getMethod("getParameterMap", new Class[]{});
             hasRequest = true;
-        } catch (Exception e) {
+        } catch (Throwable e) {
             hasRequest = false;
         }
     }
 
     //缓存count查询的ms
-    private final Map<String, MappedStatement> msCountMap = new ConcurrentHashMap<String, MappedStatement>();
+    private static final Map<String, MappedStatement> msCountMap = new ConcurrentHashMap<String, MappedStatement>();
     //RowBounds参数offset作为PageNum使用 - 默认不使用
     private boolean offsetAsPageNum = false;
     //RowBounds是否进行count查询 - 默认不查询
@@ -82,13 +85,8 @@ public class SqlUtil implements Constant {
     private boolean reasonable = false;
     //具体针对数据库的parser
     private Parser parser;
-    //只返回PageInfo的查询结果
-    private ReturnPageInfo returnPageInfo = ReturnPageInfo.NONE;
-    //存储返回值为是否为PageInfo
-    private Map<String, Boolean> returnPageInfoMap = new ConcurrentHashMap<String, Boolean>();
     //是否支持接口参数来传递分页参数，默认false
     private boolean supportMethodsArguments = false;
-
     /**
      * 构造方法
      *
@@ -136,7 +134,7 @@ public class SqlUtil implements Constant {
      *
      * @return
      */
-    public static Page getLocalPage() {
+    public static <T> Page<T> getLocalPage() {
         return LOCAL_PAGE.get();
     }
 
@@ -157,7 +155,7 @@ public class SqlUtil implements Constant {
      * @param params
      * @return
      */
-    public static Page getPageFromObject(Object params) {
+    public static <T> Page<T> getPageFromObject(Object params) {
         int pageNum;
         int pageSize;
         MetaObject paramsObject = null;
@@ -251,7 +249,7 @@ public class SqlUtil implements Constant {
      * @param ms
      * @return
      */
-    public static boolean isPageSqlSource(MappedStatement ms) {
+    public boolean isPageSqlSource(MappedStatement ms) {
         if (ms.getSqlSource() instanceof PageSqlSource) {
             return true;
         }
@@ -263,7 +261,9 @@ public class SqlUtil implements Constant {
      *
      * @param dialect     数据库类型
      * @param originalSql 原sql
+     * @deprecated 将在5.x版本去掉
      */
+    @Deprecated
     public static void testSql(String dialect, String originalSql) {
         testSql(Dialect.of(dialect), originalSql);
     }
@@ -273,7 +273,9 @@ public class SqlUtil implements Constant {
      *
      * @param dialect     数据库类型
      * @param originalSql 原sql
+     * @deprecated 将在5.x版本去掉
      */
+    @Deprecated
     public static void testSql(Dialect dialect, String originalSql) {
         Parser parser = AbstractParser.newParser(dialect);
         if (dialect == Dialect.sqlserver) {
@@ -292,25 +294,20 @@ public class SqlUtil implements Constant {
      * 修改SqlSource
      *
      * @param ms
-     * @param parser
      * @throws Throwable
      */
-    public void processMappedStatement(MappedStatement ms, Parser parser) throws Throwable {
+    public void processMappedStatement(MappedStatement ms) throws Throwable {
         SqlSource sqlSource = ms.getSqlSource();
         MetaObject msObject = SystemMetaObject.forObject(ms);
-        SqlSource tempSqlSource = sqlSource;
-        if (sqlSource instanceof OrderBySqlSource) {
-            tempSqlSource = ((OrderBySqlSource) tempSqlSource).getOriginal();
-        }
         SqlSource pageSqlSource;
-        if (tempSqlSource instanceof StaticSqlSource) {
-            pageSqlSource = new PageStaticSqlSource((StaticSqlSource) tempSqlSource, parser);
-        } else if (tempSqlSource instanceof RawSqlSource) {
-            pageSqlSource = new PageRawSqlSource((RawSqlSource) tempSqlSource, parser);
-        } else if (tempSqlSource instanceof ProviderSqlSource) {
-            pageSqlSource = new PageProviderSqlSource((ProviderSqlSource) tempSqlSource, parser);
-        } else if (tempSqlSource instanceof DynamicSqlSource) {
-            pageSqlSource = new PageDynamicSqlSource((DynamicSqlSource) tempSqlSource, parser);
+        if (sqlSource instanceof StaticSqlSource) {
+            pageSqlSource = new PageStaticSqlSource((StaticSqlSource) sqlSource);
+        } else if (sqlSource instanceof RawSqlSource) {
+            pageSqlSource = new PageRawSqlSource((RawSqlSource) sqlSource);
+        } else if (sqlSource instanceof ProviderSqlSource) {
+            pageSqlSource = new PageProviderSqlSource((ProviderSqlSource) sqlSource);
+        } else if (sqlSource instanceof DynamicSqlSource) {
+            pageSqlSource = new PageDynamicSqlSource((DynamicSqlSource) sqlSource);
         } else {
             throw new RuntimeException("无法处理该类型[" + sqlSource.getClass() + "]的SqlSource");
         }
@@ -404,87 +401,11 @@ public class SqlUtil implements Constant {
             return invocation.proceed();
         } else {
             //不支持分页参数时，page==null，这里需要获取
-            if (page == null) {
+            if (!supportMethodsArguments && page == null) {
                 page = getPage(args);
             }
-            page = doProcessPage(invocation, page, args);
-            return processPageInfo(page, args);
+            return doProcessPage(invocation, page, args);
         }
-    }
-
-    /**
-     * 处理Page结果，看是否需要处理为PageInfo
-     *
-     * @param page
-     * @param args
-     * @return
-     */
-    private Object processPageInfo(Page<?> page, Object[] args) {
-        switch (returnPageInfo) {
-            case NONE:
-                return page;
-            case ALWAYS:
-                return returnPageInfo(page);
-            case CHECK:
-                if (isReturnPageInfo((MappedStatement) args[0])) {
-                    return returnPageInfo(page);
-                } else {
-                    return page;
-                }
-        }
-        return page;
-    }
-
-    /**
-     * 返回PageInfo类型
-     *
-     * @param page
-     * @return
-     */
-    private Object returnPageInfo(Page<?> page) {
-        List<PageInfo> list = new ArrayList<PageInfo>();
-        list.add(new PageInfo(page));
-        return list;
-    }
-
-    /**
-     * 是否为返回PageInfo的方法
-     *
-     * @param ms
-     * @return
-     */
-    private boolean isReturnPageInfo(MappedStatement ms) {
-        String msId = ms.getId();
-        if (!returnPageInfoMap.containsKey(msId)) {
-            String _interface = msId.substring(0, msId.lastIndexOf("."));
-            String _methodName = msId.substring(_interface.length() + 1);
-            try {
-                Class<?> mapperClass = Class.forName(_interface);
-                Method[] methods = mapperClass.getDeclaredMethods();
-                Method m = null;
-                for (Method method : methods) {
-                    if (method.getName().equals(_methodName)) {
-                        m = method;
-                        break;
-                    }
-                }
-                if (m == null) {
-                    returnPageInfoMap.put(msId, false);
-                } else {
-                    Class<?> returnClass = m.getReturnType();
-                    if (returnClass.equals(PageInfo.class)) {
-                        returnPageInfoMap.put(msId, true);
-                    } else {
-                        returnPageInfoMap.put(msId, false);
-                    }
-                }
-            } catch (ClassNotFoundException e) {
-                returnPageInfoMap.put(msId, false);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return returnPageInfoMap.get(msId);
     }
 
     /**
@@ -536,8 +457,10 @@ public class SqlUtil implements Constant {
         MappedStatement ms = (MappedStatement) args[0];
         //判断并处理为PageSqlSource
         if (!isPageSqlSource(ms)) {
-            processMappedStatement(ms, parser);
+            processMappedStatement(ms);
         }
+        //设置当前的parser，后面每次使用前都会set，ThreadLocal的值不会产生不良影响
+        ((PageSqlSource)ms.getSqlSource()).setParser(parser);
         //忽略RowBounds-否则会进行Mybatis自带的内存分页
         args[2] = RowBounds.DEFAULT;
         //如果只进行排序 或 pageSizeZero的判断
@@ -580,6 +503,44 @@ public class SqlUtil implements Constant {
         return page;
     }
 
+    public void setOffsetAsPageNum(boolean offsetAsPageNum) {
+        this.offsetAsPageNum = offsetAsPageNum;
+    }
+
+    public void setRowBoundsWithCount(boolean rowBoundsWithCount) {
+        this.rowBoundsWithCount = rowBoundsWithCount;
+    }
+
+    public void setPageSizeZero(boolean pageSizeZero) {
+        this.pageSizeZero = pageSizeZero;
+    }
+
+    public void setReasonable(boolean reasonable) {
+        this.reasonable = reasonable;
+    }
+
+    public void setSupportMethodsArguments(boolean supportMethodsArguments) {
+        this.supportMethodsArguments = supportMethodsArguments;
+    }
+
+    public void setParams(String params) {
+        PARAMS.put("pageNum", "pageNum");
+        PARAMS.put("pageSize", "pageSize");
+        PARAMS.put("count", "countSql");
+        PARAMS.put("orderBy", "orderBy");
+        PARAMS.put("reasonable", "reasonable");
+        PARAMS.put("pageSizeZero", "pageSizeZero");
+        if (StringUtil.isNotEmpty(params)) {
+            String[] ps = params.split("[;|,|&]");
+            for (String s : ps) {
+                String[] ss = s.split("[=|:]");
+                if (ss.length == 2) {
+                    PARAMS.put(ss[0], ss[1]);
+                }
+            }
+        }
+    }
+
     public void setProperties(Properties p) {
         //offset作为PageNum使用
         String offsetAsPageNum = p.getProperty("offsetAsPageNum");
@@ -596,28 +557,17 @@ public class SqlUtil implements Constant {
         //是否支持接口参数来传递分页参数，默认false
         String supportMethodsArguments = p.getProperty("supportMethodsArguments");
         this.supportMethodsArguments = Boolean.parseBoolean(supportMethodsArguments);
-        //returnPageInfo
-        String returnPageInfo = p.getProperty("returnPageInfo");
-        if (returnPageInfo != null && returnPageInfo.length() > 0) {
-            this.returnPageInfo = ReturnPageInfo.valueOf(returnPageInfo.toUpperCase());
-        }
         //当offsetAsPageNum=false的时候，不能
         //参数映射
-        PARAMS.put("pageNum", "pageNum");
-        PARAMS.put("pageSize", "pageSize");
-        PARAMS.put("count", "countSql");
-        PARAMS.put("orderBy", "orderBy");
-        PARAMS.put("reasonable", "reasonable");
-        PARAMS.put("pageSizeZero", "pageSizeZero");
-        String params = p.getProperty("params");
-        if (params != null && params.length() > 0) {
-            String[] ps = params.split("[;|,|&]");
-            for (String s : ps) {
-                String[] ss = s.split("[=|:]");
-                if (ss.length == 2) {
-                    PARAMS.put(ss[0], ss[1]);
-                }
-            }
-        }
+        setParams(p.getProperty("params"));
+    }
+
+    public void setSqlUtilConfig(SqlUtilConfig config) {
+        this.offsetAsPageNum = config.isOffsetAsPageNum();
+        this.rowBoundsWithCount = config.isRowBoundsWithCount();
+        this.pageSizeZero = config.isPageSizeZero();
+        this.reasonable = config.isReasonable();
+        this.supportMethodsArguments = config.isSupportMethodsArguments();
+        setParams(config.getParams());
     }
 }

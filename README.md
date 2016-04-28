@@ -17,23 +17,26 @@
  5. `Hsqldb`
  6. `PostgreSQL`
  7. `DB2`
- 8. `SqlServer(2005+)`
+ 8. `SqlServer(2005,2008)`
  9. `Informix`
  10. `H2`
+ 11. `SqlServer2012`
 
 配置`dialect`属性时，可以使用小写形式：
 
-`oracle`,`mysql`,`mariadb`,`sqlite`,`hsqldb`,`postgresql`,`db2`,`sqlserver`,`informix`,`h2`
+`oracle`,`mysql`,`mariadb`,`sqlite`,`hsqldb`,`postgresql`,`db2`,`sqlserver`,`informix`,`h2`,`sqlserver2012`
 
 在4.0.0版本以后，`dialect`参数可以不配置，系统能自动识别这里提到的所有数据库。
 
-对于不支持的数据库，可以实现`com.github.pagehelper.parser.Parser`接口，然后配置到`dialect`参数中(4.0.2+)。
+对于不支持的数据库，可以实现`com.github.pagehelper.parser.Parser`接口，然后配置到`dialect`参数中(4.0.2版本增加)。
+
+<b>特别注意：</b>使用SqlServer2012数据库时，需要手动指定`sqlserver2012`，否则会使用2005的方式进行分页。
 
 ##MyBatis工具网站:[http://mybatis.tk](http://www.mybatis.tk)
 
 ##分页插件支持MyBatis3.2.0~3.3.0(包含)
 
-##分页插件最新版本为4.0.3
+##分页插件最新版本为4.1.3
 
 ###Maven坐标
 
@@ -41,7 +44,7 @@
 <dependency>
     <groupId>com.github.pagehelper</groupId>
     <artifactId>pagehelper</artifactId>
-    <version>4.0.3</version>
+    <version>4.1.3</version>
 </dependency>
 ```  
 
@@ -53,53 +56,38 @@
  
  - http://repo1.maven.org/maven2/com/github/pagehelper/pagehelper/
 
-由于使用了sql解析工具，你还需要下载jsqlparser.jar（这个文件完全独立，不依赖其他）：  
+###由于使用了sql解析工具，你还需要下载jsqlparser.jar
+
+####4.1.0及以后版本需要0.9.4版本
+
+ - http://repo1.maven.org/maven2/com/github/jsqlparser/jsqlparser/0.9.4/
+
+####4.1.0以前版本需要0.9.1版本
 
  - http://repo1.maven.org/maven2/com/github/jsqlparser/jsqlparser/0.9.1/
- 
- - http://git.oschina.net/free/Mybatis_PageHelper/attach_files
 
-##4.0.3更新日志：
+##4.1.3更新日志
 
- - `PageHelper`新增3个`offsetPage`方法，参数主要是`offset`和`limit`，允许不规则分页
+- 解决反射类没有完全捕获异常的问题#94
+- 把SqlServer类所有private都改成了protected，方便继承修改#93
 
- - 新增两个可配参数`supportMethodsArguments`和`returnPageInfo`，具体含义和用法请看[如何使用分页插件](http://git.oschina.net/free/Mybatis_PageHelper/blob/master/wikis/HowToUse.markdown)中的参数介绍
+##4.1.2更新日志
 
-##4.0.2更新日志：
+- 增加可配参数`closeConn`，当使用动态数据源时，分页插件获取jdbcUrl后，控制是否关闭当前连接，默认`true`关闭
+- count查询改为`count(0)`，分库分表情况下的效率可能更高
 
- - 简化`Page<E>`类，包含排序条件`orderBy`
+##4.1.1更新日志：
 
- - `dialect`参数是数据库名称时不区分大小写
+- 解决动态数据源时获取连接后未关闭的严重bug#80
+- 解决动态数据源时SqlSource和parser绑定导致不能切换方言的问题
 
- - `dialect`参数可以设置为实现`com.github.pagehelper.parser.Parser`接口的实现类全限定名称
+##4.1.0更新日志：
 
- - 增加对`H2`数据库的支持
-
- - 将`OrderByHelper`(排序插件)融合到`PageHelper`中，移除`OrderByHelper`
-
- - 该版本调整比较大，但对开发人员影响较小，为以后扩展和完善提供方便
-
-##4.0.1更新日志：
-
- - 解决[#60 -使用RPC时，因Page类引用了RowBounds，导致反序列化失败](http://git.oschina.net/free/Mybatis_PageHelper/issues/60) by [马金凯](http://git.oschina.net/mxb)
-
- - 这个改动主要是去掉了`Page<E>`构造方法中的`RowBounds`，用`int[]`数组替换了`RowBounds`
-
-##4.0.0更新日志：
-
- - 配置属性`dialect`不在强制要求，可以不写，分页插件会自动判断
-
- - 解决从request中获取分页参数时的错误,感谢<b>探路者☆</b>
-
- - `PageInfo`增加空构造方法，所有属性增加`setter`方法
-
- - 增加对排序的支持
-
- - 可以单独使用`PageHelper.orderBy(String orderBy)`对查询语句增加排序，也可以配合`startPage`的其他方法使用
-
- - 可以使用`PageHelper.startPage(int start,int size,String orderBy)`对分页查询进行排序
-
- - 修改分页查询的处理逻辑，主要是将原`sqlSource`包装成可以分页和排序的`sqlSource`
+- 增加`autoRuntimeDialect`参数，允许在运行时根据多数据源自动识别对应方言的分页（暂时不支持自动选择`sqlserver2012`，只能使用`sqlserver`）。
+- 去掉了4.0.3版本增加的`returnPageInfo`参数，接口返回值不支持`PageInfo`类型，可以使用下面`ISelect`中演示的方法获取
+- 增加对`SqlServer2012`的支持，需要手动指定`dialect=sqlserver2012`，否则会使用2005的方式进行分页
+- jsqlparser升级到0.9.4版本，使用jar包时必须用最新的0.9.4版本，使用Maven会自动依赖0.9.4
+- 增加`ISelect`接口，方便调用，使用方法可以参考`src/test/java/com.github.pagehelper.test.basic.TestISelect`测试。
 
 ##项目文档[wiki](http://git.oschina.net/free/Mybatis_PageHelper/wikis/home)：  
 

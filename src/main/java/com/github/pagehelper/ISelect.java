@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2014 abel533@gmail.com
+ * Copyright (c) 2014-2016 abel533@gmail.com
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,31 +22,19 @@
  * THE SOFTWARE.
  */
 
-package com.github.pagehelper.parser.impl;
-
-import com.github.pagehelper.Page;
-import org.apache.ibatis.mapping.BoundSql;
-import org.apache.ibatis.mapping.MappedStatement;
-
-import java.util.Map;
+package com.github.pagehelper;
 
 /**
- * @author liuzh
+ * 分页查询接口
+ *
+ * @author liuzh_3nofxnp
+ * @since 2015-12-18 18:51
  */
-public class PostgreSQLParser extends AbstractParser {
-    @Override
-    public String getPageSql(String sql) {
-        StringBuilder sqlBuilder = new StringBuilder(sql.length() + 14);
-        sqlBuilder.append(sql);
-        sqlBuilder.append(" limit ? offset ?");
-        return sqlBuilder.toString();
-    }
+public interface ISelect {
 
-    @Override
-    public Map<String, Object> setPageParameter(MappedStatement ms, Object parameterObject, BoundSql boundSql, Page<?> page) {
-        Map<String, Object> paramMap = super.setPageParameter(ms, parameterObject, boundSql, page);
-        paramMap.put(PAGEPARAMETER_FIRST, page.getPageSize());
-        paramMap.put(PAGEPARAMETER_SECOND, page.getStartRow());
-        return paramMap;
-    }
+    /**
+     * 在接口中调用自己的查询方法，不要在该方法内写过多代码，只要一行查询方法最好
+     */
+    void doSelect();
+
 }

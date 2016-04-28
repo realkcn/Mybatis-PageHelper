@@ -48,10 +48,10 @@ public class TestParameterArray {
         try {
             //获取第1页，10条内容，默认查询总数count
             PageHelper.startPage(1, 10);
-            List<Country> list = countryMapper.selectAllOrderByArray(new Integer[]{1,2});
+            List<Country> list = countryMapper.selectAllOrderByArray(new Integer[]{1, 2});
             assertEquals(3, list.get(0).getId());
             assertEquals(10, list.size());
-            assertEquals(181, ((Page) list).getTotal());
+            assertEquals(181, ((Page<?>) list).getTotal());
         } finally {
             sqlSession.close();
         }

@@ -1,4 +1,4 @@
-package com.github.orderbyhelper;
+package com.github.pagehelper.parser;
 
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statement;
@@ -58,11 +58,9 @@ public class OrderByParser {
             }
         } else {
             SetOperationList operationList = (SetOperationList) selectBody;
-            if (operationList.getPlainSelects() != null && operationList.getPlainSelects().size() > 0) {
-                List<PlainSelect> plainSelects = operationList.getPlainSelects();
-                List<OrderByElement> orderByElements = plainSelects.get(plainSelects.size() - 1).getOrderByElements();
-                plainSelects.get(plainSelects.size() - 1).setOrderByElements(null);
-                return orderByElements;
+            if (operationList.getSelects() != null && operationList.getSelects().size() > 0) {
+                List<SelectBody> plainSelects = operationList.getSelects();
+                return extraOrderBy(plainSelects.get(plainSelects.size() - 1));
             }
         }
         return null;

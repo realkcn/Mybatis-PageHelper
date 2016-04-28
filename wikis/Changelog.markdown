@@ -1,12 +1,71 @@
 ##更新日志
 
-###4.0.3 - 2015-11-09
+##4.1.3 - 2016-03-31
+
+- 解决反射类没有完全捕获异常的问题#94
+- 把SqlServer类所有private都改成了protected，方便继承修改#93
+
+###4.1.2 - 2016-03-06
+
+- 增加可配参数`closeConn`，当使用动态数据源时，分页插件获取jdbcUrl后，控制是否关闭当前连接，默认`true`关闭
+- count查询改为`count(0)`，分库分表情况下的效率可能更高
+
+###4.1.1 - 2016-01-05：
+
+- 解决动态数据源时获取连接后未关闭的严重bug#80
+- 解决动态数据源时SqlSource和parser绑定导致不能切换方言的问题
+
+###4.1.0 - 2015-12-30：
+
+- 增加`autoRuntimeDialect`参数，允许在运行时根据多数据源自动识别对应方言的分页（暂时不支持自动选择`sqlserver2012`，只能使用`sqlserver`）。
+- 去掉了4.0.3版本增加的`returnPageInfo`参数，接口返回值不支持`PageInfo`类型，可以使用下面`ISelect`中演示的方法获取
+- 增加对`SqlServer2012`的支持，需要手动指定`dialect=sqlserver2012`，否则会使用2005的方式进行分页
+- jsqlparser升级到0.9.4版本，使用jar包时必须用最新的0.9.4版本，使用Maven会自动依赖0.9.4
+- 增加`ISelect`接口，方便调用，使用方法可以参考`src/test/java/com.github.pagehelper.test.basic.TestISelect`测试。
+
+###使用该接口可以参考如下用法(返回值为`Page`或`PageInfo`)：
+
+```java
+//jdk6,7用法，创建接口
+Page<Country> page = PageHelper.startPage(1, 10).setOrderBy("id desc").doSelectPage(new ISelect() {
+    @Override
+    public void doSelect() {
+        countryMapper.selectGroupBy();
+    }
+});
+//jdk8 lambda用法
+Page<Country> page = PageHelper.startPage(1, 10).setOrderBy("id desc").doSelectPage(()-> countryMapper.selectGroupBy());
+//为了说明可以链式使用，上面是单独setOrderBy("id desc")，也可以直接如下
+Page<Country> page = PageHelper.startPage(1, 10, "id desc").doSelectPage(()-> countryMapper.selectGroupBy());
+
+//也可以直接返回PageInfo，注意doSelectPageInfo方法和doSelectPage
+pageInfo = PageHelper.startPage(1, 10).setOrderBy("id desc").doSelectPageInfo(new ISelect() {
+    @Override
+    public void doSelect() {
+        countryMapper.selectGroupBy();
+    }
+});
+//对应的lambda用法
+pageInfo = PageHelper.startPage(1, 10).setOrderBy("id desc").doSelectPageInfo(() -> countryMapper.selectGroupBy());
+
+//count查询，返回一个查询语句的count数
+long total = PageHelper.count(new ISelect() {
+    @Override
+    public void doSelect() {
+        countryMapper.selectLike(country);
+    }
+});
+//lambda
+total = PageHelper.count(()->countryMapper.selectLike(country));
+```
+
+###4.0.3 - 2015-11-09：
 
  - `PageHelper`新增3个`offsetPage`方法，参数主要是`offset`和`limit`，允许不规则分页
 
- - 新增两个可配参数`supportMethodsArguments`和`returnPageInfo`，具体含义和用法请看[如何使用分页插件](http://git.oschina.net/free/Mybatis_PageHelper/blob/master/wikis/HowToUse.markdown)中的参数介绍
+ - 新增两个可配参数`supportMethodsArguments`和`returnPageInfo`（该参数在4.1.0版本去掉），具体含义和用法请看[如何使用分页插件](http://git.oschina.net/free/Mybatis_PageHelper/blob/master/wikis/HowToUse.markdown)中的参数介绍
 
-##4.0.2 - 2015-11-02
+###4.0.2 - 2015-11-02
 
  - 简化`Page<E>`类，包含排序条件`orderBy`
 
